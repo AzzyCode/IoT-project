@@ -5,15 +5,19 @@ import pymysql
 import time
 from flask import Flask, jsonify, render_template
 from flask_cors import CORS
+import ssl
 
 # Paramètres du serveur
 HOST = "0.0.0.0"
-PORT = 5005
+PORT = 5000
+
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(certfile="cert.pem", keyfile="key.pem")
 
 def get_db_connection():
     try:
         conn = pymysql.connect(
-            user="user",
+            user="root",
             password="qwertyDB", 
             host="localhost",
             database="data",
@@ -56,7 +60,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                     if db_conn:
                         with db_conn.cursor() as cursor:
                             cursor.execute(
-                                "INSERT INTO sensor_data (datetime, temperature, humidity, pressure) VALUES (%s, %s, %s)",(timestamp, temperature, humidity, pressure)
+                                "INSERT INTO sensor_data (datetime, temperature, humidity) VALUES (%s, %s, %s)",(timestamp, temperature, humidity)
+                            )
+                            cursor.execute(
+                                "INSERT INTO BMP280_measurement (datetime, pressure) VALUES (%s, %s)",(timestamp, pressure)
                             )
                         db_conn.commit()
                         db_conn.close()
@@ -70,6 +77,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
 # Flask API
 app = Flask(__name__)
 CORS(app)
+
+if __name__ == "__main__":
+    app.run(host=HOST, port=PORT, debug=True)
+
 
 # # Route pour afficher la page web
 # @app.route("/")
@@ -89,6 +100,3 @@ CORS(app)
 
 #     db_conn.close()
 #     return jsonify(data)
-
-if __name__ == "__main__":
-    app.run(host=HOST, port=PORT, debug=True)

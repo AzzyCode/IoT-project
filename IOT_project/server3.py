@@ -1,11 +1,13 @@
 from flask import Flask, render_template, jsonify, redirect, url_for, request
 import pymysql
 import hashlib
+import socket
+import os
 
 def get_db_connection():
     try:
         conn = pymysql.connect(
-            user="user",
+            user="root",
             password="qwertyDB",
             host="localhost",
             database="data",
@@ -85,12 +87,25 @@ def sensor_data():
 
     try:
         with db_conn.cursor() as cursor:
-            cursor.execute("SELECT datetime, temperature, humidity, pressure FROM sensor_data ORDER BY id DESC LIMIT 100")
-            data = [{"datetime": row["datetime"], "temperature": row["temperature"], "humidity": row["humidity"], "pressure": row["pressure"]} for row in cursor.fetchall()]
+            cursor.execute("SELECT datetime, temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 100")
+            sensor_data = cursor.fetchall()
+
+            cursor.execute("SELECT pressure FROM BMP280_measurement ORDER BY id DESC LIMIT 100")
+            pressure_data = cursor.fetchall()
+
+            # Combine the rows
+            data = []
+            for s_row, p_row in zip(sensor_data, pressure_data):
+                data.append({
+                    "datetime": s_row["datetime"],
+                    "temperature": s_row["temperature"],
+                    "humidity": s_row["humidity"],
+                    "pressure": p_row["pressure"]
+                })
 
         if not data:
             print("⚠️ Aucune donnée trouvée.")
-        
+
         db_conn.close()
         return jsonify(data)
 
@@ -101,4 +116,12 @@ def sensor_data():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    print(f"Server is running on IP address: {local_ip}")
+
+    # Confirming the IP address on the network
+    if local_ip.startswith("127."):
+        local_ip = os.popen("hostname -I").read().strip().split()[0]
+    print(f"Server is accessible on network IP address: {local_ip}")
+    app.run(host=local_ip , port=5001, debug=True, ssl_context=("cert.pem", "key.pem"))
