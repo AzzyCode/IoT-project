@@ -1,18 +1,21 @@
 import socket
+import ssl
 import json
 from datetime import datetime
 import pymysql
 import time
 from flask import Flask, jsonify, render_template
 from flask_cors import CORS
-import ssl
 
 # Paramètres du serveur
 HOST = "0.0.0.0"
 PORT = 5000
 
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain(certfile="cert.pem", keyfile="key.pem")
+# Chemins vers tes certificats (PEM)
+CERT_FILE = "cert.pem"
+KEY_FILE  = "key.pem"
+# (Optionnel) pour l’authentification mutuelle client
+# CLIENT_CA = "client_cert.pem"
 
 def get_db_connection():
     try:
@@ -28,75 +31,63 @@ def get_db_connection():
         print(f"Erreur connexion MariaDB: {e}")
         return None
 
-# Serveur socket
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(1)
-    print(f"Server is listening at {HOST}:{PORT}")
+# --- Configuration du contexte TLS ---
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+# Pour exiger un certificat client (MTLS), décommente :
+# context.verify_mode = ssl.CERT_REQUIRED
+# context.load_verify_locations(cafile=CLIENT_CA)
 
-    conn, addr = server_socket.accept()
-    with conn:
-        print(f"Connected to {addr}")
-        with open("logs.txt", "a") as log_file:
+# --- Serveur TCP enveloppé SSL ---
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as bindsock:
+    bindsock.bind((HOST, PORT))
+    bindsock.listen(1)
+    print(f"Serveur TLS à l’écoute sur {HOST}:{PORT}")
+
+    # Dès qu’on accepte, on « wrap » le socket dans TLS
+    with context.wrap_socket(bindsock, server_side=True) as serverssl:
+        conn, addr = serverssl.accept()
+        print(f"Nouvelle connexion TLS de {addr}")
+        with conn, open("logs.txt", "a") as log_file:
             while True:
                 data = conn.recv(1024)
                 if not data:
                     break
-
                 try:
-                    # Décodage des données JSON
-                    json_data = json.loads(data.decode("utf-8"))
-                    temperature = json_data["temperature"]
-                    humidity = json_data["humidity"]
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    pressure = json_data["pressure"]
+                    # Décodage JSON
+                    payload = json.loads(data.decode("utf-8"))
+                    temperature = payload["temperature"]
+                    humidity    = payload["humidity"]
+                    pressure    = payload["pressure"]
+                    timestamp   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Log console
-                    log = f"{timestamp} - Temperature: {temperature} °C, Humidity: {humidity}, Pressure: {pressure} %"
+                    # Log console et fichier
+                    log = (f"{timestamp} - Temp: {temperature} °C, "
+                           f"Hum: {humidity} %, Pres: {pressure} hPa")
                     print(log)
-
-                    # Connexion à la base de données et insertion
-                    db_conn = get_db_connection()
-                    if db_conn:
-                        with db_conn.cursor() as cursor:
-                            cursor.execute(
-                                "INSERT INTO sensor_data (datetime, temperature, humidity) VALUES (%s, %s, %s)",(timestamp, temperature, humidity)
-                            )
-                            cursor.execute(
-                                "INSERT INTO BMP280_measurement (datetime, pressure) VALUES (%s, %s)",(timestamp, pressure)
-                            )
-                        db_conn.commit()
-                        db_conn.close()
-
-                    # Écriture dans le fichier log
                     log_file.write(log + "\n")
 
+                    # Insertion en base
+                    db = get_db_connection()
+                    if db:
+                        with db.cursor() as cur:
+                            cur.execute(
+                                "INSERT INTO sensor_data (datetime, temperature, humidity) "
+                                "VALUES (%s, %s, %s)",
+                                (timestamp, temperature, humidity)
+                            )
+                            cur.execute(
+                                "INSERT INTO BMP280_measurement (datetime, pressure) "
+                                "VALUES (%s, %s)",
+                                (timestamp, pressure)
+                            )
+                        db.commit()
+                        db.close()
                 except json.JSONDecodeError:
-                    print("Error decoding JSON !")
+                    print("Erreur JSON reçue !")
 
-# Flask API
 app = Flask(__name__)
 CORS(app)
 
 if __name__ == "__main__":
     app.run(host=HOST, port=PORT, debug=True)
-
-
-# # Route pour afficher la page web
-# @app.route("/")
-# def index():
-#     return render_template("index.html")
-
-# # Route pour récupérer les données du capteur
-# @app.route("/sensor-data")
-# def sensor_data():
-#     db_conn = get_db_connection()
-#     if not db_conn:
-#         return jsonify({"error": "DataBase connnexion error"}), 500
-
-#     with db_conn.cursor() as cursor:
-#         cursor.execute("SELECT datetime, temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 10")
-#         data = [{"time": row["datetime"].strftime("%H:%M:%S"), "temperature": row["temperature"], "humidity": row["humidity"]} for row in cursor.fetchall()]
-
-#     db_conn.close()
-#     return jsonify(data)
