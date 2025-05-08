@@ -163,4 +163,4 @@ if __name__ == "__main__":
     if local_ip.startswith("127."):
         local_ip = os.popen("hostname -I").read().strip().split()[0]
     print(f"Server is accessible on network IP address: {local_ip}")
-    app.run(host=local_ip , port=5001, debug=True, ssl_context=("cert.pem", "key.pem"))
+    app.run(host=local_ip , port=5001, debug=True)#, ssl_context=("cert.pem", "key.pem"))
