@@ -33,10 +33,7 @@ def get_db_connection():
 
 # --- Configuration du contexte TLS ---
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
-# Pour exiger un certificat client (MTLS), décommente :
-# context.verify_mode = ssl.CERT_REQUIRED
-# context.load_verify_locations(cafile=CLIENT_CA)
+context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)   
 
 # --- Serveur TCP enveloppé SSL ---
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as bindsock:
@@ -90,4 +87,4 @@ app = Flask(__name__)
 CORS(app)
 
 if __name__ == "__main__":
-    app.run(host=HOST, port=PORT, debug=True)
+    app.run(host=HOST, port=PORT, debug=False)
